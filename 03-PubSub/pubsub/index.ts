@@ -1,4 +1,5 @@
 import { createClient } from "redis";
+import type { PubSubPayload } from "../type/types.js";
 
 const subscriber = createClient();
 await startSubscriber();
@@ -13,9 +14,18 @@ async function startSubscriber() {
     await subscriber.pSubscribe(
       "incoming_chat",
       (message: string, channel: string) => {
-        console.log(`Received message on ${channel}: ${message}`);
-        publisher.publish("all_chat", message);
-        console.log(`Published message to ${channel}: ${message}`);
+        // Parse Payload
+        try {
+          const data: PubSubPayload = JSON.parse(message);
+
+          console.log(`Received message on ${channel}: ${data.message}`);
+          publisher.publish("all_chat", JSON.stringify(data));
+          console.log(`Published message on ${channel}: ${data.toId}`);
+        } catch (err) {
+          console.log("Improper JSON type...");
+          publisher.publish("all_chat", "Invalid Type");
+          return;
+        }
       }
     );
   } catch (err) {

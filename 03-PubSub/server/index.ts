@@ -1,19 +1,14 @@
 import express from "express";
 import { createClient } from "redis";
 import { WebSocketServer, WebSocket } from "ws";
-
-interface User {
-  socket: WebSocket;
-  id: string;
-}
-
-interface Payload {
-  fromId: string;
-  toId: string;
-  message: string;
-}
+import {
+  type BasePayload,
+  type PubSubPayload,
+  type User,
+} from "../type/types.js";
 
 const app = express();
+app.use(express.json());
 const PORT = 8080;
 // HTTP Server
 const server = app.listen(PORT, (err) => {
@@ -44,14 +39,29 @@ wss.on("connection", (socket) => {
   };
   users.push(newUser);
   NUM_USERS++;
-
   socket.send(`User with id ${newUser.id} Connected Successfully`);
+
   socket.on("error", (err) => {
     console.log(err);
   });
 
   socket.on("message", (data: string, isBinary) => {
-    handlemessage(socket, newUser, data,isBinary);
+    const user = users.find((user) => user.socket === socket);
+    data = String(data);
+    console.log("Received: ", data);
+    try {
+      const data2: BasePayload = JSON.parse(data);
+      console.log(data2);
+      if (user) {
+        const payload: BasePayload = {
+          toId: data2.toId,
+          message: "Sample message",
+        };
+        handlemessage(user, payload, isBinary);
+      }
+    } catch (err) {
+      console.log("Bad input data");
+    }
   });
 });
 
@@ -59,17 +69,26 @@ app.get("/ping", (req, res) => {
   res.end("pong");
 });
 
-// Handler Functions
-function handlemessage(socket: WebSocket, user: User, data: string,isBinary: boolean) {
-  const currentUser = users.find((user) => user.socket === socket);
+app.post("/json", (req, res) => {
+  const body = req.body;
+  console.log(JSON.stringify(body));
+  res.end(JSON.stringify(body));
+});
 
+// Handler Functionsy)
+function handlemessage(user: User, data: BasePayload, isBinary: boolean) {
   try {
-    publisher.publish("incoming_chat", data);
+    const payload: PubSubPayload = {
+      fromId: user.id,
+      toId: data.toId,
+      message: data.message,
+    };
+    publisher.publish("incoming_chat", JSON.stringify(payload));
   } catch (err) {
     console.error("error publishing to pubsub: ", err);
     return;
   }
-  currentUser?.socket.send(`Message sent to pubsub`);
+  user?.socket.send(`Message sent to pubsub`);
 }
 
 // PUBSUB
@@ -78,17 +97,29 @@ async function startSubscriber() {
     await subscriber.connect();
     console.log("Subscriber started...");
     console.log("Listening to pubsub...");
+
     await subscriber.subscribe(
       "all_chat",
       (message: string, channel: string) => {
-        console.log(`Received message on ${channel}: ${message}`);
-        const id = message;
-        users.forEach((user) => {
-          if (id == user.id) {
-            console.log(`Sent final message to ${id}`);
-            user.socket.send(`User id pinged ${id}`);
-          }
-        });
+        // Parse Payload
+        try {
+          const data: PubSubPayload = JSON.parse(message);
+          console.log(`Received message on ${channel}: ${message}`);
+          const id = data.toId;
+
+          users.forEach((user) => {
+            if (id == user.id) {
+              console.log(`Sent final message to ${data.toId}`);
+              user.socket.send(
+                `User id ${data.fromId} pinged ${data.toId} with message ${data.message}`
+              );
+            }
+          });
+        } catch (err) {
+          console.log("Improper JSON type...");
+          publisher.publish("all_chat", "Invalid Type");
+          return;
+        }
       }
     );
   } catch (err) {
