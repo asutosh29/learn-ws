@@ -29,6 +29,7 @@ Open any API client which supports. Connect demo users to different WebSocket se
 
 When connected users will get their user ids.
 
-Any user can ping any other user by using their id.
-
-Simple send the id as the payload to ping the other user
+Any user can ping any other user by using the the following payload
+```
+{"toId":"<user-uuid>","message":"Hi there"}
+```
